@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	WatchFile              = "main.go"
-	WorkDir                = "./"
-	FileHash               = ""
-	SleepDelay int64       = 500
-	Pid                    = -1
-	Process    *os.Process = nil
+	WatchFile        = "main.go"
+	WorkDir          = "./"
+	FileHash         = ""
+	SleepDelay int64 = 500
+
+	Process *os.Process = nil
 )
 
 func ComputeMd5(filePath string) ([]byte, error) {
@@ -37,11 +37,15 @@ func ComputeMd5(filePath string) ([]byte, error) {
 	return hash.Sum(result), nil
 }
 
-func OnFileChange() {
+func KillExistingProcess() {
 	if Process != nil {
 		log.Println("Killing existing child project")
 		Process.Kill()
 	}
+}
+
+func OnFileChange() {
+	KillExistingProcess()
 
 	out, err := exec.Command("go", "build", "main.go").CombinedOutput()
 	if err != nil {
@@ -64,12 +68,7 @@ func OnFileChange() {
 }
 
 func main() {
-	defer func() {
-		if Process != nil {
-			log.Println("Killing existing child project")
-			Process.Kill()
-		}
-	}()
+	defer KillExistingProcess()
 	WorkDir, err := os.Getwd()
 	if err != nil {
 		log.Fatal("Failed to get current dir", err)
