@@ -68,6 +68,27 @@ func OnFileChange() {
 	}
 }
 
+func ListSourceFile(baseDir string, pattern string) []string {
+	result := make([]string, 0)
+	files, err := ioutil.ReadDir(baseDir)
+	if err != nil {
+		return make([]string, 0)
+	}
+	for _, e := range files {
+		if e.IsDir() {
+			for _, _e := range ListSourceFile(path.Join(baseDir, e.Name()), pattern) {
+				result = append(result, _e)
+			}
+		} else {
+			match, _ := regexp.MatchString(pattern, e.Name())
+			if match {
+				result = append(result, path.Join(baseDir, e.Name()))
+			}
+		}
+	}
+	return result
+}
+
 func main() {
 	defer KillExistingProcess()
 
@@ -88,11 +109,17 @@ func main() {
 			Value: ".*\\.go$",
 			Usage: "pattern for matching the source file",
 		},
+		cli.IntFlag{
+			Name:  "watch-interval",
+			Value: 2000,
+			Usage: "monitoring sleep timeout in millisecond",
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
 		WorkDir := c.String("workdir")
 		Pattern := c.String("pattern")
+		WatchInterval := c.Int("watch-interval")
 		log.Printf("Using working directory %s\n", WorkDir)
 		os.Chdir(WorkDir)
 		cacheMap := make(map[string]string)
@@ -113,7 +140,7 @@ func main() {
 			if changed {
 				OnFileChange()
 			}
-			time.Sleep(500)
+			time.Sleep(time.Duration(WatchInterval) * time.Millisecond)
 		}
 
 		return nil
@@ -121,25 +148,4 @@ func main() {
 
 	app.Run(os.Args)
 
-}
-
-func ListSourceFile(baseDir string, pattern string) []string {
-	result := make([]string, 0)
-	files, err := ioutil.ReadDir(baseDir)
-	if err != nil {
-		return make([]string, 0)
-	}
-	for _, e := range files {
-		if e.IsDir() {
-			for _, _e := range ListSourceFile(path.Join(baseDir, e.Name()), pattern) {
-				result = append(result, _e)
-			}
-		} else {
-			match, _ := regexp.MatchString(pattern, e.Name())
-			if match {
-				result = append(result, path.Join(baseDir, e.Name()))
-			}
-		}
-	}
-	return result
 }
