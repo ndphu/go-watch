@@ -82,11 +82,9 @@ func OnFileChange() {
 		Process = cmd.Process
 		log.Println("Done execution new binary")
 		if PrintStdout {
-			log.Println("Capturing stdout...")
 			go StreamMonitor(stdout, cmd.Process.Pid, "stdout")
 		}
 		if PrintStderr {
-			log.Println("Capturing stderr...")
 			go StreamMonitor(stderr, cmd.Process.Pid, "stderr")
 		}
 
