@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/md5"
 	"fmt"
 	"github.com/urfave/cli"
@@ -16,10 +17,11 @@ import (
 )
 
 var (
-	FileHash         = ""
-	SleepDelay int64 = 500
-
-	Process *os.Process = nil
+	FileHash                = ""
+	SleepDelay  int64       = 500
+	PrintStdout bool        = false
+	PrintStderr bool        = false
+	Process     *os.Process = nil
 )
 
 func ComputeMd5(filePath string) ([]byte, error) {
@@ -40,8 +42,15 @@ func ComputeMd5(filePath string) ([]byte, error) {
 
 func KillExistingProcess() {
 	if Process != nil {
-		log.Println("Killing existing child project")
+		log.Printf("Killing child process [%d]\n", Process.Pid)
 		Process.Kill()
+	}
+}
+
+func StreamMonitor(reader io.ReadCloser, pid int, streamName string) {
+	buff := bufio.NewScanner(reader)
+	for buff.Scan() {
+		log.Printf("[%d][%s] %s\n", pid, streamName, buff.Text())
 	}
 }
 
@@ -58,13 +67,29 @@ func OnFileChange() {
 	}
 
 	cmd := exec.Command("./main")
+	stdout, err := cmd.StdoutPipe()
+	stderr, err := cmd.StderrPipe()
+
+	if err != nil {
+		log.Println("Cannot get StdoutPipe", err.Error())
+	}
 	err = cmd.Start()
+	//defer cmd.Wait()
 	if err != nil {
 		log.Println("Execution failed", err)
 	} else {
 		log.Println("Child process PID", cmd.Process.Pid)
 		Process = cmd.Process
 		log.Println("Done execution new binary")
+		if PrintStdout {
+			log.Println("Capturing stdout...")
+			go StreamMonitor(stdout, cmd.Process.Pid, "stdout")
+		}
+		if PrintStderr {
+			log.Println("Capturing stderr...")
+			go StreamMonitor(stderr, cmd.Process.Pid, "stderr")
+		}
+
 	}
 }
 
@@ -114,12 +139,22 @@ func main() {
 			Value: 2000,
 			Usage: "monitoring sleep timeout in millisecond",
 		},
+		cli.BoolTFlag{
+			Name:  "print-stdout",
+			Usage: "print child process's stdout",
+		},
+		cli.BoolTFlag{
+			Name:  "print-stderr",
+			Usage: "print child process's stderr",
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
 		WorkDir := c.String("workdir")
 		Pattern := c.String("pattern")
 		WatchInterval := c.Int("watch-interval")
+		PrintStdout = c.BoolT("print-stdout")
+		PrintStderr = c.BoolT("print-stderr")
 		log.Printf("Using working directory %s\n", WorkDir)
 		os.Chdir(WorkDir)
 		cacheMap := make(map[string]string)
@@ -128,6 +163,7 @@ func main() {
 			// TODO handle file removal
 			sourceFiles := ListSourceFile(WorkDir, Pattern)
 			for _, f := range sourceFiles {
+
 				h, _ := ComputeMd5(f)
 				newHash := fmt.Sprintf("%x", h)
 				oldHash, exists := cacheMap[f]
