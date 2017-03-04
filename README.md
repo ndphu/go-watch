@@ -23,3 +23,5 @@ GLOBAL OPTIONS:
 ## Authors
 Phu Nguyen <ngdacphu.khtn@gmail.com>
 
+## TODO
+1. Detect files removal
