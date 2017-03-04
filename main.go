@@ -17,14 +17,12 @@ import (
 )
 
 var (
-	FileHash                  = ""
-	SleepDelay    int64       = 500
-	PrintStdout   bool        = false
-	PrintStderr   bool        = false
-	Process       *os.Process = nil
 	WorkDir       string      = ""
 	LibDirs       []string    = []string{}
 	Pattern       string      = ""
+	PrintStdout   bool        = false
+	PrintStderr   bool        = false
+	Process       *os.Process = nil
 	WatchInterval int
 )
 
