@@ -17,11 +17,15 @@ import (
 )
 
 var (
-	FileHash                = ""
-	SleepDelay  int64       = 500
-	PrintStdout bool        = false
-	PrintStderr bool        = false
-	Process     *os.Process = nil
+	FileHash                  = ""
+	SleepDelay    int64       = 500
+	PrintStdout   bool        = false
+	PrintStderr   bool        = false
+	Process       *os.Process = nil
+	WorkDir       string      = ""
+	LibDirs       []string    = []string{}
+	Pattern       string      = ""
+	WatchInterval int
 )
 
 func ComputeMd5(filePath string) ([]byte, error) {
@@ -54,8 +58,29 @@ func StreamMonitor(reader io.ReadCloser, pid int, streamName string) {
 	}
 }
 
+func GoGetLibDirs() error {
+	// need to invalidate the cache for GoSublime
+
+	for _, libDir := range LibDirs {
+		os.Chdir(libDir)
+		out, err := exec.Command("go", "get").CombinedOutput()
+		if err != nil {
+			log.Println("go get failed in", libDir, "with error", string(out))
+			return err
+		}
+	}
+	return nil
+}
+
 func OnFileChange() {
 	KillExistingProcess()
+
+	if err := GoGetLibDirs(); err != nil {
+		log.Println("Failed to execute go get for libs")
+		return
+	}
+
+	os.Chdir(WorkDir)
 
 	out, err := exec.Command("go", "build", "main.go").CombinedOutput()
 	if err != nil {
@@ -112,20 +137,43 @@ func ListSourceFile(baseDir string, pattern string) []string {
 	return result
 }
 
+func CheckChangeInFiles(files []string, cacheMap map[string]string) bool {
+	changed := false
+	for _, f := range files {
+		h, _ := ComputeMd5(f)
+		newHash := fmt.Sprintf("%x", h)
+		oldHash, exists := cacheMap[f]
+		if !exists || strings.Compare(oldHash, newHash) != 0 {
+			changed = true
+			cacheMap[f] = newHash
+		}
+	}
+	return changed
+}
+
 func main() {
 	defer KillExistingProcess()
-
+	currentExecDir, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
 	app := cli.NewApp()
 
 	app.Name = "Go Watcher"
 	app.Usage = "Monitor go source files and auto rebuild & reload the app when any source file is changed"
 	app.Author = "Phu Nguyen <ngdacphu.khtn@gmail.com>"
 	app.Version = "0.0.1"
+
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:  "workdir",
-			Value: "./",
+			Name:  "work-dir",
+			Value: currentExecDir,
 			Usage: "monitoring directory",
+		},
+		cli.StringSliceFlag{
+			Name:  "lib-dirs",
+			Value: &cli.StringSlice{},
+			Usage: "define list of directories to monitor (useful for modifying both main code and libraries' code)",
 		},
 		cli.StringFlag{
 			Name:  "pattern",
@@ -148,32 +196,39 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		WorkDir := c.String("workdir")
-		Pattern := c.String("pattern")
-		WatchInterval := c.Int("watch-interval")
+		WorkDir = c.String("work-dir")
+		LibDirs = c.StringSlice("lib-dirs")
+		Pattern = c.String("pattern")
+		WatchInterval = c.Int("watch-interval")
 		PrintStdout = c.BoolT("print-stdout")
 		PrintStderr = c.BoolT("print-stderr")
 		log.Printf("Using working directory %s\n", WorkDir)
+		log.Println("Using lib dir:")
+		for _, lib := range LibDirs {
+			log.Println(lib)
+		}
 		os.Chdir(WorkDir)
 		cacheMap := make(map[string]string)
 		for {
-			changed := false
-			// TODO handle file removal
+			// TODO: handle file removal
 			sourceFiles := ListSourceFile(WorkDir, Pattern)
-			for _, f := range sourceFiles {
-
-				h, _ := ComputeMd5(f)
-				newHash := fmt.Sprintf("%x", h)
-				oldHash, exists := cacheMap[f]
-				if !exists || strings.Compare(oldHash, newHash) != 0 {
-					changed = true
-					cacheMap[f] = newHash
+			appCodeChanged := CheckChangeInFiles(sourceFiles, cacheMap)
+			if appCodeChanged {
+				log.Println("Change detected in application code")
+			}
+			libCodeChanged := false
+			for _, libDir := range LibDirs {
+				libFiles := ListSourceFile(libDir, Pattern)
+				if CheckChangeInFiles(libFiles, cacheMap) && !libCodeChanged {
+					libCodeChanged = true
+					log.Println("Change detected in libs")
 				}
 			}
 
-			if changed {
+			if appCodeChanged || libCodeChanged {
 				OnFileChange()
 			}
+
 			time.Sleep(time.Duration(WatchInterval) * time.Millisecond)
 		}
 
