@@ -56,14 +56,28 @@ func StreamMonitor(reader io.ReadCloser, pid int, streamName string) {
 	}
 }
 
+func ExecCommand(cmd string) ([]byte, error) {
+	parts := strings.Split(cmd, " ")
+	args := make([]string, len(parts)-1)
+	for i := 0; i < len(parts)-1; i++ {
+		args[i] = parts[i+1]
+	}
+	return exec.Command(parts[0], args...).CombinedOutput()
+}
+
+func ExecGoGet() ([]byte, error) {
+	return ExecCommand("go get")
+}
+
 func GoGetLibDirs() error {
 	// need to invalidate the cache for GoSublime
 
 	for _, libDir := range LibDirs {
 		os.Chdir(libDir)
-		out, err := exec.Command("go", "get").CombinedOutput()
+		out, err := ExecGoGet()
 		if err != nil {
-			log.Println("go get failed in", libDir, "with error", string(out))
+			log.Println("Fail to run 'go get' for directory", libDir)
+			log.Println("'go get' output", string(out))
 			return err
 		}
 	}
@@ -74,13 +88,20 @@ func OnFileChange() {
 	KillExistingProcess()
 
 	if err := GoGetLibDirs(); err != nil {
-		log.Println("Failed to execute go get for libs")
+		log.Println("Failed to execute 'go get' for libs")
 		return
 	}
 
 	os.Chdir(WorkDir)
+	goGetOuput, err := ExecGoGet()
+	if err != nil {
+		log.Println("Failed to exec go get, error", err)
+		log.Println("'go get' output", string(goGetOuput))
+		return
+	}
 
-	out, err := exec.Command("go", "build", "main.go").CombinedOutput()
+	//out, err := exec.Command("go", "build", "main.go").CombinedOutput()
+	out, err := ExecCommand("go build main.go")
 	if err != nil {
 		log.Println("Build failed", err)
 		log.Printf("Build output:", string(out))
